@@ -1,0 +1,35 @@
+{
+  "name": "@cyberhaven/mcpignore-filesystem",
+  "version": "0.1.0",
+  "description": "Data security first filesystem MCP server with .mcpignore functionality",
+  "license": "MIT",
+  "author": "Cyberhaven Inc",
+  "homepage": "https://github.com/CyberhavenInc/mcpignore-filesystem#readme",
+  "type": "module",
+  "bin": {
+    "mcpignore-filesystem": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc && shx chmod +x dist/*.js",
+    "prepare": "npm run build",
+    "watch": "tsc --watch"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "0.5.0",
+    "diff": "^5.1.0",
+    "glob": "^10.3.10",
+    "ignore": "^7.0.4",
+    "minimatch": "^10.0.1",
+    "zod-to-json-schema": "^3.23.5"
+  },
+  "devDependencies": {
+    "@types/diff": "^5.0.9",
+    "@types/minimatch": "^5.1.2",
+    "@types/node": "^22",
+    "shx": "^0.3.4",
+    "typescript": "^5.3.3"
+  }
+}
