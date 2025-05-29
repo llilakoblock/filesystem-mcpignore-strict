@@ -1,6 +1,6 @@
 {
   "name": "@cyberhaven/mcpignore-filesystem",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Data security first filesystem MCP server with .mcpignore functionality",
   "license": "MIT",
   "author": "Cyberhaven Inc",
