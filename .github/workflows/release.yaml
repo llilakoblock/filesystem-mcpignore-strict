@@ -60,7 +60,7 @@ jobs:
       - name: Create GitHub Release
         run: |
           gh release create v${{ inputs.version }} \
-            --title "v{{ inputs.version }}" \
+            --title "v${{ inputs.version }}" \
             --notes "${{ steps.changelog.outputs.changelog }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
