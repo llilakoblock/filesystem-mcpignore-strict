@@ -12,9 +12,9 @@ import path from "path";
 import os from 'os';
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { diffLines, createTwoFilesPatch } from 'diff';
+import { createTwoFilesPatch } from 'diff';
 import { minimatch } from 'minimatch';
-import ignore from 'ignore';
+import gitignoreParser from '@gerhobbelt/gitignore-parser';
 
 // Command line argument parsing
 const args = process.argv.slice(2);
@@ -54,42 +54,104 @@ await Promise.all(args.map(async (dir) => {
   }
 }));
 
-// Determine whether to ignore a file based on basePath's mcpignore if it exists
+// Cache for parsed gitignore rules
+const ignoreCache = new Map<string, any>();
+
+// Check if path is ignored using gitignore-parser
 async function isPathIgnored(filePath: string, basePath: string): Promise<boolean> {
-  // Ignore .mcpignore file itself
-  if (filePath.endsWith(".mcpignore")) {
+  // Always ignore .mcpignore and .gitignore files themselves
+  if (filePath.endsWith(".mcpignore") || filePath.endsWith(".gitignore")) {
+    return true;
+  }
+
+  // Always ignore directories that git ignores automatically (but gitignore-parser doesn't know about)
+  const fileName = path.basename(filePath);
+  const autoIgnoredDirs = ['.git', '.svn', '.hg'];
+  if (autoIgnoredDirs.includes(fileName)) {
     return true;
   }
 
   try {
-    const ignorePath = path.join(basePath, '.mcpignore');
-    try {
-      await fs.access(ignorePath);
-    } catch {
-      // No .mcpignore file
+    // Get or create cached parser for this basePath
+    let parser = ignoreCache.get(basePath);
+
+    if (!parser) {
+      // Try .mcpignore first
+      const mcpignorePath = path.join(basePath, '.mcpignore');
+      let ignoreFilePath = mcpignorePath;
+      let ignoreFileExists = false;
+
+      try {
+        await fs.access(mcpignorePath);
+        ignoreFilePath = mcpignorePath;
+        ignoreFileExists = true;
+        console.error(`[IGNORE] Found .mcpignore at: ${mcpignorePath}`);
+      } catch {
+        // No .mcpignore, try .gitignore
+        const gitignorePath = path.join(basePath, '.gitignore');
+        try {
+          await fs.access(gitignorePath);
+          ignoreFilePath = gitignorePath;
+          ignoreFileExists = true;
+          console.error(`[IGNORE] Found .gitignore at: ${gitignorePath}`);
+        } catch {
+          // No ignore files - cache empty parser
+          console.error(`[IGNORE] No ignore files in: ${basePath}`);
+          ignoreCache.set(basePath, null);
+          return false;
+        }
+      }
+
+      if (!ignoreFileExists) {
+        ignoreCache.set(basePath, null);
+        return false;
+      }
+
+      // Read and parse ignore file
+      const content = await fs.readFile(ignoreFilePath, 'utf-8');
+
+      // gitignore-parser automatically handles line endings
+      parser = gitignoreParser.compile(content);
+
+      // Cache the parser
+      ignoreCache.set(basePath, parser);
+      console.error(`[IGNORE] Cached parser for: ${basePath}`);
+    }
+
+    // No parser means no ignore files
+    if (!parser) {
       return false;
     }
 
-    // Read .mcpignore file
-    const content = await fs.readFile(ignorePath, 'utf-8');
-    const ig = ignore();
-    ig.add(content);
-
+    // Calculate relative path from basePath
     const relativePath = path.relative(basePath, filePath);
-    return ig.ignores(relativePath);
+
+    // Normalize path separators (always use forward slashes)
+    const normalizedPath = relativePath.split(path.sep).join('/');
+
+    // Check if path is denied (ignored)
+    const isIgnored = parser.denies(normalizedPath);
+
+    // Log for debugging
+    if (normalizedPath.includes('node_modules') || normalizedPath.includes('dist') || normalizedPath.includes('.git')) {
+      console.error(`[IGNORE] ${normalizedPath} -> ${isIgnored ? '❌ IGNORED' : '✅ NOT IGNORED'}`);
+    }
+
+    return isIgnored;
   } catch (error) {
+    console.error(`[IGNORE] Error:`, error);
     return false;
   }
 }
 
 // Find the matched allowed directory
-function matchAllowedDirectory(normalizedPath: string): string|null {
-    for (const dir of allowedDirectories) {
-        if (normalizedPath.startsWith(dir)) {
-            return dir;
-        }
+function matchAllowedDirectory(normalizedPath: string): string | null {
+  for (const dir of allowedDirectories) {
+    if (normalizedPath.startsWith(dir)) {
+      return dir;
     }
-    return null;
+  }
+  return null;
 }
 
 // Security utilities
@@ -237,12 +299,21 @@ async function getFileStats(filePath: string): Promise<FileInfo> {
   };
 }
 
+
 async function searchFiles(
   rootPath: string,
   pattern: string,
   excludePatterns: string[] = []
 ): Promise<string[]> {
   const results: string[] = [];
+
+  // Find the matched allowed directory for ignore checking
+  const normalizedRootPath = normalizePath(rootPath);
+  const matchedAllowedDir = matchAllowedDirectory(normalizedRootPath);
+
+  if (!matchedAllowedDir) {
+    return results;
+  }
 
   async function search(currentPath: string) {
     const entries = await fs.readdir(currentPath, { withFileTypes: true });
@@ -251,6 +322,12 @@ async function searchFiles(
       const fullPath = path.join(currentPath, entry.name);
 
       try {
+        // Check if this path is ignored by .mcpignore
+        const isIgnored = matchedAllowedDir ? await isPathIgnored(fullPath, matchedAllowedDir) : false;
+        if (isIgnored) {
+          continue; // Skip ignored files and directories completely
+        }
+
         // Validate each path before processing
         await validatePath(fullPath, true);
 
@@ -305,7 +382,7 @@ function createUnifiedDiff(originalContent: string, newContent: string, filepath
 
 async function applyFileEdits(
   filePath: string,
-  edits: Array<{oldText: string, newText: string}>,
+  edits: Array<{ oldText: string, newText: string }>,
   dryRun = false
 ): Promise<string> {
   // Read file content and normalize line endings
@@ -441,10 +518,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "directory_tree",
         description:
-            "Get a recursive tree view of files and directories as a JSON structure. " +
-            "Each entry includes 'name', 'type' (file/directory), and 'children' for directories. " +
-            "Files have no children array, while directories always have a children array (which may be empty). " +
-            "The output is formatted with 2-space indentation for readability. Only works within allowed directories.",
+          "Get a recursive tree view of files and directories as a JSON structure. " +
+          "Each entry includes 'name', 'type' (file/directory), and 'children' for directories. " +
+          "Files have no children array, while directories always have a children array (which may be empty). " +
+          "The output is formatted with 2-space indentation for readability. Only works within allowed directories.",
         inputSchema: zodToJsonSchema(DirectoryTreeArgsSchema) as ToolInput,
       },
       {
@@ -581,48 +658,69 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-        case "directory_tree": {
-            const parsed = DirectoryTreeArgsSchema.safeParse(args);
-            if (!parsed.success) {
-                throw new Error(`Invalid arguments for directory_tree: ${parsed.error}`);
-            }
 
-            interface TreeEntry {
-                name: string;
-                type: 'file' | 'directory';
-                children?: TreeEntry[];
-            }
-
-            async function buildTree(currentPath: string): Promise<TreeEntry[]> {
-                const validPath = await validatePath(currentPath, true);
-                const entries = await fs.readdir(validPath, {withFileTypes: true});
-                const result: TreeEntry[] = [];
-
-                for (const entry of entries) {
-                    const entryData: TreeEntry = {
-                        name: entry.name,
-                        type: entry.isDirectory() ? 'directory' : 'file'
-                    };
-
-                    if (entry.isDirectory()) {
-                        const subPath = path.join(currentPath, entry.name);
-                        entryData.children = await buildTree(subPath);
-                    }
-
-                    result.push(entryData);
-                }
-
-                return result;
-            }
-
-            const treeData = await buildTree(parsed.data.path);
-            return {
-                content: [{
-                    type: "text",
-                    text: JSON.stringify(treeData, null, 2)
-                }],
-            };
+      case "directory_tree": {
+        const parsed = DirectoryTreeArgsSchema.safeParse(args);
+        if (!parsed.success) {
+          throw new Error(`Invalid arguments for directory_tree: ${parsed.error}`);
         }
+
+        interface TreeEntry {
+          name: string;
+          type: 'file' | 'directory';
+          children?: TreeEntry[];
+        }
+
+        async function buildTree(currentPath: string): Promise<TreeEntry[]> {
+          const validPath = await validatePath(currentPath, true);
+          const entries = await fs.readdir(validPath, { withFileTypes: true });
+          const result: TreeEntry[] = [];
+
+          // Find the matched allowed directory for ignore checking
+          const normalizedPath = normalizePath(validPath);
+          const matchedAllowedDir = matchAllowedDirectory(normalizedPath);
+
+          if (!matchedAllowedDir) {
+            return result;
+          }
+
+          for (const entry of entries) {
+            const entryPath = path.join(currentPath, entry.name);
+
+            // Check if this entry is ignored
+            const isIgnored = matchedAllowedDir ? await isPathIgnored(entryPath, matchedAllowedDir) : false;
+
+            if (isIgnored) {
+              continue; // Skip ignored files and directories
+            }
+
+            const entryData: TreeEntry = {
+              name: entry.name,
+              type: entry.isDirectory() ? 'directory' : 'file'
+            };
+
+            if (entry.isDirectory()) {
+              entryData.children = await buildTree(entryPath);
+              // Don't include empty directories (all contents were ignored)
+              if (entryData.children.length === 0) {
+                continue;
+              }
+            }
+
+            result.push(entryData);
+          }
+
+          return result;
+        }
+
+        const treeData = await buildTree(parsed.data.path);
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify(treeData, null, 2)
+          }],
+        };
+      }
 
       case "move_file": {
         const parsed = MoveFileArgsSchema.safeParse(args);
@@ -657,9 +755,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const validPath = await validatePath(parsed.data.path);
         const info = await getFileStats(validPath);
         return {
-          content: [{ type: "text", text: Object.entries(info)
-            .map(([key, value]) => `${key}: ${value}`)
-            .join("\n") }],
+          content: [{
+            type: "text", text: Object.entries(info)
+              .map(([key, value]) => `${key}: ${value}`)
+              .join("\n")
+          }],
         };
       }
 
