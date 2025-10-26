@@ -24,8 +24,8 @@ This fork adds **intelligent file filtering** to the MCP Filesystem Server, resp
 
 ```bash
 # Clone this fork
-git clone https://github.com/llilakoblock/mcp-filesystem-strict.git
-cd mcp-filesystem-strict
+git clone https://github.com/llilakoblock/filesystem-mcpignore-strict.git
+cd filesystem-mcpignore-strict
 
 # Install dependencies
 npm install
@@ -117,7 +117,7 @@ Add to your Claude Desktop config (`claude_desktop_config.json`):
     "filesystem": {
       "command": "node",
       "args": [
-        "C:\\path\\to\\mcp-filesystem-strict\\build\\index.js",
+        "C:\\path\\to\\filesystem-mcpignore-strict\\build\\index.js",
         "C:\\Users\\YourName\\Projects"
       ]
     }
@@ -305,10 +305,10 @@ cp claude_desktop_config.json claude_desktop_config.json.backup
 
 ```bash
 # Clone this fork
-git clone https://github.com/llilakoblock/mcp-filesystem-strict.git
+git clone https://github.com/llilakoblock/filesystem-mcpignore-strict.git
 
 # Install dependencies
-cd mcp-filesystem-strict
+cd filesystem-mcpignore-strict
 npm install
 
 # Build
@@ -413,8 +413,8 @@ MIT License - see [LICENSE](LICENSE) file for details
 
 Questions? Issues? Suggestions?
 
-- Open an [issue](https://github.com/llilakoblock/mcp-filesystem-strict/issues)
-- Start a [discussion](https://github.com/llilakoblock/mcp-filesystem-strict/discussions)
+- Open an [issue](https://github.com/llilakoblock/filesystem-mcpignore-strict/issues)
+- Start a [discussion](https://github.com/llilakoblock/filesystem-mcpignore-strict/discussions)
 
 ---
 
