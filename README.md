@@ -325,7 +325,7 @@ Update your `claude_desktop_config.json`:
     "filesystem": {
       "command": "node",
       "args": [
-        "C:\\path\\to\\mcp-filesystem-gitignore\\build\\index.js",
+        "C:\\path\\to\\filesystem-mcpignore-strict\\build\\index.js",
         "C:\\Users\\YourName\\Projects"
       ]
     }
